@@ -23,7 +23,7 @@
               <div v-if="index === messages.length - 1">
                 <div v-if="currentReasoningContent" class="reasoning-content">
                   {{ currentReasoningContent }}
-                </div>                
+                </div>
                 <div v-html="md.render(currentTypingMessage)"></div>
               </div>
               <div v-else>
@@ -56,7 +56,7 @@
 </template>
 
 <script>
-import MarkdownIt from 'markdown-it';
+import MarkdownIt from "markdown-it";
 
 export default {
   name: "ChatView",
@@ -68,11 +68,11 @@ export default {
       isLoading: false,
       isThinking: false,
       apiKey: process.env.VUE_APP_DEEPSEEK_API_KEY || "",
-      apiEndpoint:
-        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+      apiEndpoint: "http://10.3.106.85:11434/api/generate",
       typingSpeed: 50, // 打字速度（毫秒）
       currentTypingMessage: null,
       currentReasoningContent: null,
+      isStartReasoningContent: false,
     };
   },
   methods: {
@@ -100,6 +100,7 @@ export default {
       try {
         this.currentTypingMessage = "";
         this.currentReasoningContent = "";
+        this.isStartReasoningContent = false;
         await this.callDeepseekAPI(assistantMessage);
       } catch (error) {
         console.error("Error:", error);
@@ -113,24 +114,19 @@ export default {
     },
 
     async callDeepseekAPI(assistantMessage) {
-      if (!this.apiKey) {
-        throw new Error("API密钥未配置");
-      }
-
       const response = await fetch(this.apiEndpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${this.apiKey}`,
         },
         body: JSON.stringify({
-          model: "deepseek-r1",
-          messages: this.messages.map((msg, i) => ({
-            role: msg.role,
-            content: msg.content,
-            prefix: this.messages.length == i + 1,
-          })),
+          model: "deepseek-r1:1.5b",
+          prompt: this.messages.map((msg) => msg.content).join("\n"),
           stream: true,
+          options: {
+            temperature: 0.7,
+            top_p: 0.9,
+          },
         }),
       });
 
@@ -153,35 +149,47 @@ export default {
 
           const chunk = decoder.decode(value);
           const lines = chunk.split("\n").filter((line) => line.trim() !== "");
-
           for (const line of lines) {
-            if (line.startsWith("data: ")) {
-              const data = line.slice(6);
-              if (data === "[DONE]") continue;
+            try {
+              const parsed = JSON.parse(line);
+              let content = parsed.response || "";
 
-              try {
-                const parsed = JSON.parse(data);
-                const content = parsed.choices[0]?.delta?.content || "";
-                const reasoningContent =
-                  parsed.choices[0]?.delta?.reasoning_content || "";
-                if (content || reasoningContent) {
-                  if (content) {
-                    assistantMessage.content += content;
-                    this.currentTypingMessage += content;
-                  }
-                  if (reasoningContent) {
-                    if (!assistantMessage.reasoning_content) {
-                      assistantMessage.reasoning_content = "";
-                    }
-                    assistantMessage.reasoning_content += reasoningContent;
-                    this.currentReasoningContent += reasoningContent;
-                  }
-                  await this.$nextTick();
-                  this.scrollToBottom();
-                }
-              } catch (e) {
-                console.error("解析响应数据失败:", e);
+              let reasoningContent = "";
+
+              if (content.match("</think>")) {
+                reasoningContent = content
+                  .replace("<think>", "")
+                  .replace("</think>", "")
+                  .trim();
+                this.isStartReasoningContent = false;
+                content = "";
               }
+
+              if (content.match("<think>") || this.isStartReasoningContent) {
+                reasoningContent = content
+                  .replace("<think>", "")
+                  .replace("</think>", "").trim();
+                this.isStartReasoningContent = true;
+                content = "";
+              }
+
+              if (content || reasoningContent) {
+                if (content) {
+                  assistantMessage.content += content;
+                  this.currentTypingMessage += content;
+                }
+                if (reasoningContent) {
+                  if (!assistantMessage.reasoning_content) {
+                    assistantMessage.reasoning_content = "";
+                  }
+                  assistantMessage.reasoning_content += reasoningContent;
+                  this.currentReasoningContent += reasoningContent;
+                }
+                await this.$nextTick();
+                this.scrollToBottom();
+              }
+            } catch (e) {
+              console.error("解析响应数据失败:", e);
             }
           }
         }
