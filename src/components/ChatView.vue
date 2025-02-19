@@ -101,7 +101,7 @@ export default {
         this.currentTypingMessage = "";
         this.currentReasoningContent = "";
         this.isStartReasoningContent = false;
-        await this.callDeepseekAPI(assistantMessage);
+        await this.callOllamaAPI(assistantMessage);
       } catch (error) {
         console.error("Error:", error);
         assistantMessage.content = "抱歉，发生了错误，请稍后重试。";
@@ -113,7 +113,7 @@ export default {
       }
     },
 
-    async callDeepseekAPI(assistantMessage) {
+    async callOllamaAPI(assistantMessage) {
       const response = await fetch(this.apiEndpoint, {
         method: "POST",
         headers: {
